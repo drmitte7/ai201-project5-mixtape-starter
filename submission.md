@@ -102,17 +102,19 @@ Added a create_notification() call after db.session.commit() in rate_song(), fol
 
 ### Issue #2 — Friends feed shows old activity
 
+### Issue #2 — Friends feed shows old activity
+
 **How I reproduced it:**
-[fill in]
+Checked the timezone info on stored ListeningEvent timestamps in the Flask shell. Confirmed that listened_at values are stored as timezone-naive (tzinfo: None) while the cutoff was calculated using datetime.now(timezone.utc) which is timezone-aware. This mismatch causes incorrect comparisons in SQLite.
 
 **Navigation path:**
-[fill in]
+The README pointed to feed_service.py. I opened get_friends_listening_now() and read the cutoff calculation. I then checked the stored listened_at values in the database and found they have no timezone info (tzinfo: None). The mismatch between timezone-aware cutoff and timezone-naive stored values was the root cause.
 
 **Root cause:**
-[fill in]
+The cutoff was calculated with datetime.now(timezone.utc) which produces a timezone-aware datetime. The listened_at values stored in SQLite are timezone-naive (no tzinfo). When SQLite compares a timezone-aware datetime against timezone-naive values, the comparison behaves incorrectly — old events outside the 24-hour window can pass the filter and appear in the feed.
 
 **Fix and side-effect check:**
-[fill in]
+Changed datetime.now(timezone.utc) to datetime.utcnow() so the cutoff is timezone-naive, matching the stored values. Verified that get_friends_listening_now() now
 
 ---
 
