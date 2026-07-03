@@ -1,7 +1,19 @@
 # Mixtape Bug Hunt — Submission
 
 ## AI Usage
-[fill in at the end]
+
+I used Claude (AI assistant) in the following ways during this project:
+
+**Instance 1 — Codebase orientation:**
+I gave Claude the contents of all service files and asked it to explain what each one does and identify patterns in how the app is organized. This helped me build a mental model of the codebase quickly. I verified the explanations myself by reading the code — the explanations were accurate and matched what I read.
+
+**Instance 2 — Bug diagnosis for Bug 2:**
+After narrowing Bug 2 to feed_service.py, I asked Claude to explain the difference between timezone-aware and timezone-naive datetimes in Python and why comparing them can cause incorrect results. Claude explained that SQLite stores datetimes without timezone info, so comparing with a timezone-aware cutoff can behave unexpectedly. I verified this by checking the tzinfo attribute of stored ListeningEvent timestamps in the Flask shell — confirmed they were None.
+
+**Instance 3 — Understanding the outerjoin bug:**
+I asked Claude to explain why an outerjoin on a many-to-many association table produces duplicate rows. Claude explained that each tag produces one row in the join result, so a song with 3 tags produces 3 rows. I verified this by querying the song_tags table directly and confirming 5 songs had multiple tags.
+
+In all cases I verified Claude's explanations against the actual code and database state before applying any fix.
 
 ## Codebase Map
 
@@ -82,7 +94,6 @@ Removed the and today.weekday() != 6 condition so the elif branch reads elif day
 
 ---
 
-### Issue #4 — No notification when song is rated
 
 ### Issue #4 — No notification when song is rated
 
@@ -100,7 +111,6 @@ Added a create_notification() call after db.session.commit() in rate_song(), fol
 
 ---
 
-### Issue #2 — Friends feed shows old activity
 
 ### Issue #2 — Friends feed shows old activity
 
@@ -119,4 +129,21 @@ Changed datetime.now(timezone.utc) to datetime.utcnow() so the cutoff is timezon
 ---
 
 ## Git Log Screenshot
-[add screenshot here]
+
+41b71f9 (HEAD -> bugfix/mixtape) fix: use timezone-naive cutoff to match stored listened_at timestamps in feed filter
+10ec53c fix: add missing notification when a song is rated
+6563baf fix: remove incorrect Sunday exception from streak increment logic
+96dc227 fix: add distinct() to search query to prevent duplicate results for multi-tag songs
+e307465 fix: return all playlist songs instead of excluding last entry
+2dfdeaa (origin/main, origin/HEAD, main) Add .gitignore file and update README with setup instructions
+7b64551 initial commit
+
+## Regression Test
+
+I wrote a regression test for Bug #5 in `tests/test_playlist_fix.py`.
+
+The test creates a playlist with 3 songs and calls `get_playlist_songs()`. It asserts that all 3 songs are returned and that "Song 3" (the last song) is present in the result.
+
+This test would have **failed against the buggy code** because the original implementation used `songs[:-1]` which excludes the last element — with 3 songs it would return only 2 and "Song 3" would be missing. After the fix using `songs` with no slicing, the test passes correctly.
+
+Run with: `pytest tests/test_playlist_fix.py -v`
