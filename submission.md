@@ -60,6 +60,7 @@ The return statement uses songs[:-1] instead of songs. In Python, [:-1] means "a
 
 **Fix and side-effect check:**
 Changed songs[:-1] to songs so all songs are returned. Checked get_playlist() and get_user_playlists() — neither touches the songs list, so they are unaffected. Also checked notification_service.add_to_playlist() which calls get_playlist_songs() — it only uses the result to check membership, so returning all songs is correct.
+
 ---
 
 ### Issue #3 — Duplicate songs in search
