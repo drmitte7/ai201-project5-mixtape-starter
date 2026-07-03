@@ -84,17 +84,19 @@ Removed the and today.weekday() != 6 condition so the elif branch reads elif day
 
 ### Issue #4 — No notification when song is rated
 
+### Issue #4 — No notification when song is rated
+
 **How I reproduced it:**
-[fill in]
+Rated a song via POST /songs/<song_id>/rate and checked the song sharer's notifications via GET /users/<user_id>/notifications. No song_rated notification appeared, even though a song_added_to_playlist notification correctly appeared when the same song was added to a playlist.
 
 **Navigation path:**
-[fill in]
+The README pointed to notification_service.py. I compared rate_song() to add_to_playlist() line by line. add_to_playlist() calls create_notification() after saving — rate_song() saves the rating and commits but never calls create_notification(). The missing call was immediately obvious from the structural comparison.
 
 **Root cause:**
-[fill in]
+The rate_song() function saves the Rating record and commits to the database but never calls create_notification(). The add_to_playlist() function follows the correct pattern — save the action, then notify the song's original sharer if they weren't the one who performed the action. rate_song() was missing the entire notification step.
 
 **Fix and side-effect check:**
-[fill in]
+Added a create_notification() call after db.session.commit() in rate_song(), following the same pattern as add_to_playlist() — notify song.shared_by only if song.shared_by != user_id. Verified that rating your own song does not generate a notification. Verified that get_notifications() and mark_as_read() are unaffected since they only read and update existing notifications.
 
 ---
 
