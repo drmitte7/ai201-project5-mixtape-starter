@@ -15,11 +15,14 @@ I asked Claude to explain why an outerjoin on a many-to-many association table p
 
 In all cases I verified Claude's explanations against the actual code and database state before applying any fix.
 
+---
+
 ## Codebase Map
 
 ### Main Files
+
 - **app.py** — Flask app factory and database setup
-- **models.py** — 6 SQLAlchemy models: User, Tag, Song, ListeningEvent, Rating, Playlist, Notification
+- **models.py** — 7 SQLAlchemy models: User, Tag, Song, ListeningEvent, Rating, Playlist, Notification
 - **routes/songs.py** — Song sharing, search, and rating endpoints
 - **routes/playlists.py** — Playlist creation and song management endpoints
 - **routes/users.py** — User profiles, streaks, and notifications endpoints
@@ -31,13 +34,15 @@ In all cases I verified Claude's explanations against the actual code and databa
 - **services/playlist_service.py** — Playlist retrieval logic
 
 ### Data Flow Example — Rating a Song
+
 1. User sends POST /songs/<song_id>/rate
 2. routes/songs.py receives the request and calls notification_service.rate_song()
 3. rate_song() saves a Rating record to the database
-4. rate_song() should notify the song's original sharer (Bug 4 — currently missing)
+4. rate_song() notifies the song's original sharer if they weren't the one who rated it
 5. Response is returned to the user
 
 ### Patterns
+
 - Every route delegates immediately to a service function
 - Routes handle input parsing and response formatting
 - All business logic lives in services/
@@ -47,39 +52,7 @@ In all cases I verified Claude's explanations against the actual code and databa
 
 ## Bug Fixes
 
-### Issue #5 — Last song in playlist never shows up
-
-**How I reproduced it:**
-Called GET /playlists/<playlist_id>/songs on a playlist with multiple songs and observed that the last song in the list was always missing from the response.
-
-**Navigation path:**
-The README pointed to playlist_service.py as the affected service. I opened get_playlist_songs() and read the return statement, which uses songs[:-1] — Python slice notation that excludes the last element of the list.
-
-**Root cause:**
-The return statement uses songs[:-1] instead of songs. In Python, [:-1] means "all elements except the last one." This means the last song in every playlist is always excluded from the response regardless of how many songs the playlist contains.
-
-**Fix and side-effect check:**
-Changed songs[:-1] to songs so all songs are returned. Checked get_playlist() and get_user_playlists() — neither touches the songs list, so they are unaffected. Also checked notification_service.add_to_playlist() which calls get_playlist_songs() — it only uses the result to check membership, so returning all songs is correct.
-
----
-
-### Issue #3 — Duplicate songs in search
-
-**How I reproduced it:**
-Queried the song_tags join table directly and confirmed 5 songs have multiple tags. The outerjoin in search_songs() produces one row per tag per song, meaning a song with 3 tags appears 3 times in the raw SQL result.
-
-**Navigation path:**
-The README pointed to search_service.py. I opened search_songs() and read the query — it uses outerjoin on song_tags which joins one row per tag. Since Song already loads tags through its relationship, this join is unnecessary and produces duplicates for multi-tag songs.
-
-**Root cause:**
-The search query uses .outerjoin(song_tags, Song.id == song_tags.c.song_id) which joins the song_tags association table. For a song with 3 tags, this produces 3 rows in the result — one per tag. SQLAlchemy's ORM deduplicates these at the object level in some cases, but the raw SQL produces duplicates that can appear in the API response for certain query patterns.
-
-**Fix and side-effect check:**
-Added .distinct() before .all() to ensure each song appears only once regardless of how many tags it has. Verified search still returns correct results for songs with 0, 1, and 3 tags. The get_song() function is unaffected as it queries by ID directly.
-
----
-
-### Issue #1 — Streak resets on Sunday
+### Issue #1 — My listening streak keeps resetting
 
 **How I reproduced it:**
 Confirmed in the Flask shell that datetime.weekday() returns 6 for Sunday. The streak condition uses today.weekday() != 6 which evaluates to False on Sundays, preventing the streak from incrementing when a user listens on a Sunday after listening on Saturday.
@@ -95,8 +68,39 @@ Removed the and today.weekday() != 6 condition so the elif branch reads elif day
 
 ---
 
+### Issue #2 — Friends Listening Now shows people from yesterday
 
-### Issue #4 — No notification when song is rated
+**How I reproduced it:**
+Checked the timezone info on stored ListeningEvent timestamps in the Flask shell. Confirmed that listened_at values are stored as timezone-naive (tzinfo: None) while the cutoff was calculated using datetime.now(timezone.utc) which is timezone-aware. This mismatch causes incorrect comparisons in SQLite.
+
+**Navigation path:**
+The README pointed to feed_service.py. I opened get_friends_listening_now() and read the cutoff calculation. I then checked the stored listened_at values in the database and found they have no timezone info (tzinfo: None). The mismatch between timezone-aware cutoff and timezone-naive stored values was the root cause.
+
+**Root cause:**
+The cutoff was calculated with datetime.now(timezone.utc) which produces a timezone-aware datetime. The listened_at values stored in SQLite are timezone-naive (no tzinfo). When SQLite compares a timezone-aware datetime against timezone-naive values, the comparison behaves incorrectly — old events outside the 24-hour window can pass the filter and appear in the feed.
+
+**Fix and side-effect check:**
+Changed datetime.now(timezone.utc) to datetime.utcnow() so the cutoff is timezone-naive, matching the stored values. Verified that get_friends_listening_now() now correctly returns only recent events. Checked get_activity_feed() — it does not use a cutoff filter so it is unaffected by this change.
+
+---
+
+### Issue #3 — The same song keeps showing up twice in search
+
+**How I reproduced it:**
+Queried the song_tags join table directly and confirmed 5 songs have multiple tags. The outerjoin in search_songs() produces one row per tag per song, meaning a song with 3 tags appears 3 times in the raw SQL result.
+
+**Navigation path:**
+The README pointed to search_service.py. I opened search_songs() and read the query — it uses outerjoin on song_tags which joins one row per tag. Since Song already loads tags through its relationship, this join is unnecessary and produces duplicates for multi-tag songs.
+
+**Root cause:**
+The search query uses .outerjoin(song_tags, Song.id == song_tags.c.song_id) which joins the song_tags association table. For a song with 3 tags, this produces 3 rows in the result — one per tag. SQLAlchemy's ORM deduplicates these at the object level in some cases, but the raw SQL produces duplicates that can appear in the API response for certain query patterns.
+
+**Fix and side-effect check:**
+Added .distinct() before .all() to ensure each song appears only once regardless of how many tags it has. Verified search still returns correct results for songs with 0, 1, and 3 tags. The get_song() function is unaffected as it queries by ID directly.
+
+---
+
+### Issue #4 — I got notified when a friend added my song to a playlist but not when they rated it
 
 **How I reproduced it:**
 Rated a song via POST /songs/<song_id>/rate and checked the song sharer's notifications via GET /users/<user_id>/notifications. No song_rated notification appeared, even though a song_added_to_playlist notification correctly appeared when the same song was added to a playlist.
@@ -112,20 +116,19 @@ Added a create_notification() call after db.session.commit() in rate_song(), fol
 
 ---
 
-
-### Issue #2 — Friends feed shows old activity
+### Issue #5 — The last song in a playlist never shows up
 
 **How I reproduced it:**
-Checked the timezone info on stored ListeningEvent timestamps in the Flask shell. Confirmed that listened_at values are stored as timezone-naive (tzinfo: None) while the cutoff was calculated using datetime.now(timezone.utc) which is timezone-aware. This mismatch causes incorrect comparisons in SQLite.
+Called GET /playlists/<playlist_id>/songs on a playlist with multiple songs and observed that the last song in the list was always missing from the response.
 
 **Navigation path:**
-The README pointed to feed_service.py. I opened get_friends_listening_now() and read the cutoff calculation. I then checked the stored listened_at values in the database and found they have no timezone info (tzinfo: None). The mismatch between timezone-aware cutoff and timezone-naive stored values was the root cause.
+The README pointed to playlist_service.py as the affected service. I opened get_playlist_songs() and read the return statement, which uses songs[:-1] — Python slice notation that excludes the last element of the list.
 
 **Root cause:**
-The cutoff was calculated with datetime.now(timezone.utc) which produces a timezone-aware datetime. The listened_at values stored in SQLite are timezone-naive (no tzinfo). When SQLite compares a timezone-aware datetime against timezone-naive values, the comparison behaves incorrectly — old events outside the 24-hour window can pass the filter and appear in the feed.
+The return statement uses songs[:-1] instead of songs. In Python, [:-1] means "all elements except the last one." This means the last song in every playlist is always excluded from the response regardless of how many songs the playlist contains.
 
 **Fix and side-effect check:**
-Changed datetime.now(timezone.utc) to datetime.utcnow() so the cutoff is timezone-naive, matching the stored values. Verified that get_friends_listening_now() now
+Changed songs[:-1] to songs so all songs are returned. Checked get_playlist() and get_user_playlists() — neither touches the songs list, so they are unaffected. Also checked notification_service.add_to_playlist() which calls get_playlist_songs() — it only uses the result to check membership, so returning all songs is correct.
 
 ---
 
