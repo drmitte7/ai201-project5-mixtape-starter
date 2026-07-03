@@ -131,6 +131,7 @@ Changed datetime.now(timezone.utc) to datetime.utcnow() so the cutoff is timezon
 
 ## Git Log Screenshot
 
+```
 41b71f9 (HEAD -> bugfix/mixtape) fix: use timezone-naive cutoff to match stored listened_at timestamps in feed filter
 10ec53c fix: add missing notification when a song is rated
 6563baf fix: remove incorrect Sunday exception from streak increment logic
@@ -138,6 +139,7 @@ Changed datetime.now(timezone.utc) to datetime.utcnow() so the cutoff is timezon
 e307465 fix: return all playlist songs instead of excluding last entry
 2dfdeaa (origin/main, origin/HEAD, main) Add .gitignore file and update README with setup instructions
 7b64551 initial commit
+```
 
 ## Regression Test
 
