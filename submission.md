@@ -69,16 +69,16 @@ Added .distinct() before .all() to ensure each song appears only once regardless
 ### Issue #1 — Streak resets on Sunday
 
 **How I reproduced it:**
-[fill in]
+Confirmed in the Flask shell that datetime.weekday() returns 6 for Sunday. The streak condition uses today.weekday() != 6 which evaluates to False on Sundays, preventing the streak from incrementing when a user listens on a Sunday after listening on Saturday.
 
 **Navigation path:**
-[fill in]
+The README pointed to streak_service.py. I opened update_listening_streak() and read the conditional logic. The elif branch that increments the streak has an extra condition: today.weekday() != 6. I recognized weekday() returns 6 for Sunday and saw immediately that this blocks streak increments every Sunday.
 
 **Root cause:**
-[fill in]
+Python's datetime.weekday() returns 6 for Sunday. The condition elif days_since_last == 1 and today.weekday() != 6 means the streak only increments if today is NOT Sunday. Any user who listens on consecutive days including a Sunday will have their streak reset to 1 on that Sunday instead of incrementing. The Sunday check has no logical basis in the streak rules described in the docstring.
 
 **Fix and side-effect check:**
-[fill in]
+Removed the and today.weekday() != 6 condition so the elif branch reads elif days_since_last == 1. This means the streak increments correctly for all consecutive days including Sundays. Checked get_streak() which only reads the streak value — unaffected. Verified the days_since_last == 0 and else branches are unchanged.
 
 ---
 
